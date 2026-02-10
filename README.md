@@ -1,10 +1,8 @@
 # devfetch
 
-> A discovery engine for developer tools and project ecosystems
+> V1 works with fedora
 
 **devfetch** dynamically discovers developer tools, programming language runtimes, compilers, SDKs, and package managers on your system — without hardcoded language or package lists. It's a production-grade CLI tool written in Rust that adapts to any development environment.
-
-#(V1 works with fedora)
 
 ## Features
 
