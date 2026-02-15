@@ -92,6 +92,12 @@ pub struct ScanResult {
 
 impl ScanResult {
     pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl Default for ScanResult {
+    fn default() -> Self {
         Self {
             global_tools: Vec::new(),
             project_info: None,

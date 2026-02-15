@@ -2,8 +2,6 @@ mod cli;
 mod core;
 mod types;
 
-use std::path::PathBuf;
-
 use anyhow::Result;
 use clap::Parser;
 use cli::Cli;
@@ -11,6 +9,11 @@ use types::ScanResult;
 
 fn main() -> Result<()> {
     let args = Cli::parse();
+
+    // Respect --no-color flag
+    if args.no_color {
+        colored::control::set_override(false);
+    }
 
     // Perform the scan
     let result = perform_scan(&args)?;

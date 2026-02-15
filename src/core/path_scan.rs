@@ -1,8 +1,12 @@
 use crate::core::probe;
 use crate::types::Tool;
+use rayon::prelude::*;
 use std::collections::HashSet;
 use std::env;
 use std::fs;
+use std::io::{self, Write};
+use std::os::unix::fs::PermissionsExt;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// Known developer tool prefixes/patterns to include
 static DEVELOPER_TOOL_PATTERNS: &[&str] = &[
@@ -60,6 +64,11 @@ fn is_likely_dev_tool(name: &str) -> bool {
     false
 }
 
+/// Check if a file has the executable permission bit set (Unix)
+fn is_executable(metadata: &fs::Metadata) -> bool {
+    metadata.permissions().mode() & 0o111 != 0
+}
+
 /// Scan PATH directories for developer tools
 pub fn scan_path() -> Vec<String> {
     let path_var = match env::var("PATH") {
@@ -73,7 +82,7 @@ pub fn scan_path() -> Vec<String> {
         if let Ok(entries) = fs::read_dir(&dir) {
             for entry in entries.flatten() {
                 if let Ok(metadata) = entry.metadata() {
-                    if metadata.is_file() {
+                    if metadata.is_file() && is_executable(&metadata) {
                         if let Some(name) = entry.file_name().to_str() {
                             // Only include likely developer tools
                             if is_likely_dev_tool(name) {
@@ -86,51 +95,71 @@ pub fn scan_path() -> Vec<String> {
         }
     }
 
-    executables.into_iter().collect()
+    let mut sorted: Vec<String> = executables.into_iter().collect();
+    sorted.sort();
+    sorted
 }
 
-/// Discover developer tools from PATH
+/// Discover developer tools from PATH using parallel version probing
 pub fn discover_tools(verbose: bool) -> Vec<Tool> {
     let executables = scan_path();
-    let mut tools = Vec::new();
-    let mut seen_names = HashSet::new();
 
     if verbose {
         eprintln!("Found {} potential executables", executables.len());
     }
 
-    for exe_name in executables {
-        // Skip duplicates
-        if seen_names.contains(&exe_name) {
-            continue;
-        }
+    let total = executables.len();
+    let probed = AtomicUsize::new(0);
 
-        // Try to find the executable in PATH
-        let exe_path = match which::which(&exe_name) {
-            Ok(path) => path,
-            Err(_) => continue,
-        };
+    // Resolve which paths upfront (cheap, serial)
+    let candidates: Vec<(String, std::path::PathBuf)> = executables
+        .into_iter()
+        .filter_map(|name| {
+            which::which(&name).ok().map(|path| (name, path))
+        })
+        .collect();
 
-        // Probe for version
-        let probe_result = probe::probe_version(exe_path.to_str().unwrap_or(&exe_name));
+    // Parallel version probing with rayon
+    let mut tools: Vec<Tool> = candidates
+        .par_iter()
+        .filter_map(|(exe_name, exe_path)| {
+            let probe_result = probe::probe_version(exe_path.to_str().unwrap_or(exe_name));
 
-        // Only include tools that respond to version probes
-        if probe_result.success && probe::looks_like_version(&probe_result.output) {
-            // Classification will be done by classify module
-            let version = probe_result.version.clone();
-            tools.push(Tool {
-                name: exe_name.clone(),
-                path: exe_path,
-                version: probe_result.version,
-                category: crate::types::ToolCategory::Unknown, // Will be classified later
-            });
-            
-            seen_names.insert(exe_name);
-
-            if verbose {
-                eprintln!("Discovered: {} {:?}", seen_names.len(), version);
+            let done = probed.fetch_add(1, Ordering::Relaxed) + 1;
+            if !verbose {
+                // Show a compact progress indicator
+                eprint!("\r  Probing tools... {}/{}", done, total);
+                let _ = io::stderr().flush();
             }
-        }
+
+            if probe_result.success && probe::looks_like_version(&probe_result.output) {
+                if verbose {
+                    eprintln!("Discovered: {} {:?}", exe_name, probe_result.version);
+                }
+
+                Some(Tool {
+                    name: exe_name.clone(),
+                    path: exe_path.clone(),
+                    version: probe_result.version,
+                    category: crate::types::ToolCategory::Unknown,
+                })
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    if !verbose {
+        // Clear the progress line
+        eprint!("\r                                      \r");
+        let _ = io::stderr().flush();
+    }
+
+    // Sort tools alphabetically for consistent output
+    tools.sort_by(|a, b| a.name.cmp(&b.name));
+
+    if verbose {
+        eprintln!("Found {} developer tools", tools.len());
     }
 
     tools
