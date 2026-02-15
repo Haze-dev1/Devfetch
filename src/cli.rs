@@ -31,6 +31,10 @@ pub struct Cli {
     /// Verbose output for debugging
     #[arg(short, long)]
     pub verbose: bool,
+
+    /// Disable colored output (useful for piping)
+    #[arg(long = "no-color")]
+    pub no_color: bool,
 }
 
 impl Cli {

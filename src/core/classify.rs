@@ -220,7 +220,7 @@ fn is_developer_tool(name: &str, path: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
+    use std::path::Path;
 
     #[test]
     fn test_classify_language_toolchains() {
