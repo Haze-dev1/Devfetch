@@ -1,6 +1,6 @@
 [package]
 name = "devfetch"
-version = "0.1.0"
+version = "1.0.2"
 edition = "2021"
 authors = ["Devansh Palsapure <devanshpalsapure11@gmail.com>"]
 description = "A discovery engine for developer tools and project ecosystems"
